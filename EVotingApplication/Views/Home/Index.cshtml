@@ -1,0 +1,147 @@
+﻿@model List<EVotingApplication.Models.Domain.Candidate>
+@{
+    ViewData["Title"] = "Home Page";
+}
+
+<div class="text-center">
+    <h1 class="display-4">Welcome</h1>
+    <div class="container">
+        <table class="table">
+            <thead class="thead-dark">
+            <th>Name</th>
+            <tH>Surname</tH>
+            <th>Political Party</th>
+            <th>Votes</th>
+            <th></th>
+            </thead>
+
+            <tbody>
+                @foreach (var candidate in Model)
+                {
+                    <tr>
+                        <td>@candidate.Name</td>
+                        <td>@candidate.Surname</td>
+                        <td>@candidate.PoliticalParty</td>
+                        <td>@candidate.votes</td>
+                        <td><input type="button" class="btn btn-success" onclick="Vote('@candidate.Id')" value="Vote" /></td>
+                    </tr>
+
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @section Scripts
+    {
+        <script>
+            async function Vote(candidateId) {
+                var M = candidateId;
+
+                //Calling the api for Key-data;
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", "https://localhost:44368/api/Keys/", true);
+
+                xhr.onload = function () {
+                    if (this.status == 200) {
+                        obj = JSON.parse(this.responseText);
+
+                        var e = obj.exponent;
+                        var n = obj.module;
+                        console.log("Exponent --- " + e);
+                        console.log("Module --- " + n)
+                       
+                        //Blinding the message
+                        const { blinded, r } = blind(
+                            {
+                                message: M,
+                                N: n,
+                                E: e,
+                            }); //blinding the message with the module and exponent from servers pub key
+
+                        console.log("r parametar --- " + r.toString())
+                        console.log("blindedMessage --- " + blinded.toString())
+
+                        //sending for signing
+                        sendToServerForSigning(blinded, n, r, e, M);
+                    }
+                    else {
+                        console.log("Error: File not found");
+                    }
+                }
+
+                xhr.send();
+            }
+
+            function sendToServerForSigning(blindedMessage, n, r, e, originalMessage) {
+                var _username = '@ViewBag.username';
+                var _password = '@ViewBag.password';
+                var _id = '@ViewBag.voterId'
+                var blindedMessage_string = blindedMessage.toString();
+
+                var requestForSigning = { vote: blindedMessage_string, username: _username, password: _password, id: _id };
+
+                console.log("Request for signing- BlindedMessage, username, passowrd, voterId");
+                console.log(JSON.stringify(requestForSigning))
+
+                const options = {
+                    method: "POST",
+                    body: JSON.stringify(requestForSigning),
+                    headers: { "Content-Type":"application/json"}
+                }
+                fetch("/api/Keys", options, false)
+                    .then(respone => respone.json())
+                    .then(data => {
+                        if (data == false) {
+                            console.log("Invalid Credentials...");
+                            return;
+                        }
+
+                        // Create BigInteger object from string
+                        const signed_blindedMessage = createBigIntegerFromString(data.toString());
+                        console.log("Signed Message --- " + signed_blindedMessage.toString());
+                        //unblind the message
+
+                        const signed_unblinded = unblind({
+                            signed: signed_blindedMessage,
+                            N: n,
+                            r: r,
+                        });
+
+                        console.log("Unlbinded message --- Hash(OriginalMessage) + signed")
+                        console.log(signed_unblinded.toString());
+
+                        //verification
+
+                        const result = verify({
+
+                            unblinded: signed_unblinded,
+                            N: n,
+                            E: e,
+                            message: originalMessage,
+                        });
+
+                        if (result) {
+                            console.log("Valid Signature");
+                            sendToServerForCounting(signed_unblinded);
+                        }
+                        else {
+                            console.log("Invalid Signature");
+                        }
+                        sendToServerForCounting(signed_unblinded);
+                    });
+            }
+
+            function sendToServerForCounting(signedVote) {
+
+                var sendVote = { vote_signed: signedVote.toString() };
+                const options = {
+                    method: "POST",
+                    body: JSON.stringify(sendVote),
+                    headers: { "Content-Type": "application/json" }
+                }
+                fetch("/api/Count", options, false)
+            }
+        </script>
+
+    }
+</div>
