@@ -29,6 +29,12 @@ namespace EVotingApplication.Controllers
         }
 
         [HttpPost]
+        public IActionResult TestAction()
+        {
+            return new JsonResult("test API");
+        }
+
+        [HttpPost]
         public IActionResult Login(LoginViewDto model) 
         {
             if (!ModelState.IsValid)
